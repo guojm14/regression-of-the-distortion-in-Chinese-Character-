@@ -17,7 +17,7 @@ class dataloader(threading.Thread):
         self.datapath=datapath
         self.datalist= open(datalistfile).readlines()
         self.dataqueue=Queue.Queue(maxsize=10)
-        self.bs=64
+        self.bs=batchsize
         self.on=True
         self.index=0
         self.length=len(self.datalist)
@@ -55,4 +55,4 @@ def testcode():
     print data.shape
     print label.shape
     a.close()
-testcode()
+
