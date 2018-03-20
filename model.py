@@ -14,37 +14,52 @@ class regression(object):
                 lr=0.001,
                 imagesize=[32,128],
                 pointnum=[5,2],
-                datapath='../textgenerator-/transresult/',
-                trainlist='train.txt',
-                testlist='test.txt'):
+                datapath='../textgenerator-/transresult_v1/',
+                trainlist='../textgenerator-/list.txt',
+                testlist='testlist.txt'):
         self.sess=sess
         self.lr=lr
         self.batch_size=batch_size
         self.num_epoch=num_epoch
         self.pointnum=[5,2]
         self.imagesize=imagesize
-        self.trainloader=dataloader(datapath,trainlist,batchsize=self.batch_size,t_name='train')
-        self.testloader=dataloader(datapath,testlist,batchsize=self.batch_size,t_name='test')
+        self.jobname='addnoise'
+        if not os.path.exists(self.jobname):
+            os.mkdir(self.jobname)
+        self.sampledir=os.path.join(self.jobname,'sample/')
+        if not os.path.exists(self.sampledir):
+            os.mkdir(self.sampledir)
+        self.modeldir=os.path.join(self.jobname,'checkpoint/')
+        if not os.path.exists(self.modeldir):
+            os.mkdir(self.modeldir)
+        self.logdir=os.path.join(self.jobname,'log/')
+        if not os.path.exists(self.logdir):
+            os.mkdir(self.logdir)
+       
+        self.trainloader=dataloader(datapath,trainlist,batchsize=self.batch_size,t_name='train',addnoise=True)
+        self.testloader=dataloader('test/',testlist,batchsize=64,t_name='test')
         self.trainloader.start()
         self.testloader.start()
-        self.build_model() 
+        self.build_model()
+        self.saver=tf.train.Saver()
     def build_model(self):
+        print 'building model .......'
         self.img=tf.placeholder(tf.float32,[self.batch_size,self.imagesize[0],self.imagesize[1],3])
         self.label=tf.placeholder(tf.float32,[self.batch_size,self.pointnum[0]*self.pointnum[1]*2])
         self.labelp=self.local(self.img)
         self.loss=tf.reduce_mean(tf.sqrt(tf.reduce_sum(tf.square(self.labelp-self.label),1)))
         self.loss_sum=tf.summary.scalar('loss',self.loss)
         self.img_re=TPS_STN(self.img,self.pointnum[0],self.pointnum[1],tf.reshape(self.labelp,[-1,5*2,2]),self.imagesize+[3])
-        
+        print 'built'
     def train(self):
         optimi=tf.train.AdamOptimizer(lr).minimize(self.loss)
         tf.global_variables_initializer().run()
         tf.local_variables_initializer().run()
         self.loss_sum1=tf.summary.merge([self.loss_sum])
-        self.writer=tf.summary.FileWriter('./log',self.sess.graph)
+        self.writer=tf.summary.FileWriter(self.logdir,self.sess.graph)
         
 
-        
+        print 'start'        
         for i in xrange(int(self.trainloader.length/self.batch_size*self.num_epoch)):
             
             traindata,trainlabel=self.trainloader.getdata()
@@ -55,13 +70,23 @@ class regression(object):
             else:
                 _=sess.run([optimi],feed_dict={self.img:traindata,self.label:trainlabel})
             if i%1000==1:
-                testdata,testlabel=self.testloader.getdata()
                 
-                loss,reimg=sess.run([self.loss,self.img_re],feed_dict={self.img:testdata,self.label:testlabel})
+                self.saver.save(self.sess,self.modeldir,global_step=i)
+                testdata,testlabel=self.testloader.getdata()
+                testdata=testdata.reshape([64,32,128,1]).repeat(3,3)
+                loss,reimg,plabel=sess.run([self.loss,self.img_re,self.labelp],feed_dict={self.img:testdata,self.label:testlabel})
                 print 'test '+str(i)+'loss '+str(loss)
                 print reimg.shape
-                save_images(reimg,[16,16],'sample/'+str(i)+'reimg.jpg')
-                save_images(testdata,[16,16],'sample/'+str(i)+'img.jpg')   
+                save_images(reimg,[8,8],self.sampledir+str(i)+'reimgtest.jpg')
+                save_images_point(testdata,[8,8],self.sampledir+str(i)+'imgtest.jpg',plabel)
+                testdata,testlabel=self.trainloader.getdata()
+                
+                loss,reimg,plabel=sess.run([self.loss,self.img_re,self.labelp],feed_dict={self.img:testdata,self.label:testlabel})
+                print 'trainsample '+str(i)+'loss '+str(loss)
+                print reimg.shape
+                save_images(reimg,[8,8],self.sampledir+str(i)+'reimg.jpg')
+                    
+                save_images_point(testdata,[8,8],self.sampledir+str(i)+'img.jpg',plabel)   
     def local(self,x,is_training=True):
         with  tf.variable_scope('local'):
             with slim.arg_scope([slim.conv2d],
